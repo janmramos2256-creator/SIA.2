@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # SmartWash Laundry Management System
 
 A comprehensive desktop laundry shop management application with customer booking interface and admin dashboard.
@@ -156,3 +157,6 @@ All prices are displayed in Philippine Pesos (₱)
 ## License
 
 Proprietary - All rights reserved
+=======
+# SIA.2
+>>>>>>> c5dbc30cf9753e5a85d012f890eb8e745f333496
