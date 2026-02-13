@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/* Minimal theme overrides */
+:root {
+  --background: #ffffff;
+  --foreground: #000000;
+  --muted: #f8f9fa;
+  --muted-foreground: #6c757d;
+  --border: #e9ecef;
+  --accent: #f8f9fa;
+}
+
+/* Remove default button styles and make them minimal */
+button:not(.styled-button) {
+  border: none;
+  background: transparent;
+  padding: 0.5rem 1rem;
+  border-radius: 0;
+  font-weight: 500;
+}
+
+/* Minimal card styling */
+.card {
+  border: 1px solid var(--border);
+  background: var(--background);
+  box-shadow: none;
+}
