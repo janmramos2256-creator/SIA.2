@@ -1,18 +1,52 @@
 import React, { useState, useEffect } from 'react';
 
+interface Service {
+  id: string;
+  title: string;
+  price: number;
+  priceUnit: string;
+  description: string;
+  features: string[];
+  status: 'active' | 'inactive';
+}
+
+interface SoapPrices {
+  soap: number;
+  pabcon: number;
+  both: number;
+}
+
+interface Discount {
+  id: string;
+  name: string;
+  description: string;
+  active: boolean;
+  value?: number; // For percentage discounts
+  type: 'percentage' | 'free_deliveries' | 'fixed_amount' | 'free_shipping';
+  freeDeliveries?: number; // For free deliveries discount
+  code?: string; // Coupon code
+  usageLimitPerCustomer?: number;
+  eligibility?: 'new_accounts' | 'all';
+  expiryDaysAfterCreation?: number;
+  minimumOrder?: number;
+}
+
 interface BookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (booking: any) => void;
   currentUser?: any;
+  services: Service[];
+  discounts: Discount[];
+  soapPrices: SoapPrices;
 }
 
-export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit, currentUser }) => {
+export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit, currentUser, services, discounts, soapPrices }) => {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', email: '', phone: '', service: '', date: '', time: '',
     street: '', city: '', state: '', zip: '', notes: '', paymentMethod: '', soapChoice: '',
-    deliveryOption: false, deliveryDistance: '', deliveryFee: 0, totalAmount: 0
+    deliveryOption: false, deliveryDistance: '', deliveryFee: 0, totalAmount: 0, couponCode: ''
   });
 
   useEffect(() => {
@@ -31,7 +65,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onS
     } else if (!isOpen) {
       setFormData(prev => ({
         ...prev, service: '', date: '', time: '', street: '', city: '', state: '', zip: '',
-        notes: '', paymentMethod: '', soapChoice: '', deliveryOption: false, deliveryDistance: '', deliveryFee: 0, totalAmount: 0
+        notes: '', paymentMethod: '', soapChoice: '', deliveryOption: false, deliveryDistance: '', deliveryFee: 0, totalAmount: 0, couponCode: ''
       }));
     }
   }, [isOpen, currentUser]);
@@ -39,30 +73,171 @@ export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onS
   const getMinDate = () => new Date().toISOString().split('T')[0];
 
   const isValidTime = (time: string) => !time || (Number(time.split(':')[0]) >= 8 && Number(time.split(':')[0]) < 18);
-  const handleTimeChange = (value: string) => isValidTime(value) && handleInputChange('time', value);
+  const getPromotionalDiscount = () => {
+    const promoDiscount = discounts.find(d => d.id === 'promotional' && d.active && d.type === 'percentage');
+    return promoDiscount?.value || 0;
+  };
+
+  const getNewUserFreeDeliveries = () => {
+    const freeDeliveryDiscount = discounts.find(d => d.id === 'new-user-free-deliveries' && d.active && d.type === 'free_deliveries');
+    return freeDeliveryDiscount?.freeDeliveries || 0;
+  };
+
+  const getCouponDiscount = () => {
+    if (!formData.couponCode) return { discount: 0, type: null };
+
+    const coupon = discounts.find(d => d.code === formData.couponCode && d.active);
+    if (!coupon) return { discount: 0, type: null };
+
+    // Check eligibility
+    if (coupon.eligibility === 'new_accounts') {
+      const users = JSON.parse(localStorage.getItem('smartwash-users') || '[]');
+      const user = users.find((u: any) => u.email === formData.email);
+      if (!user) return { discount: 0, type: null }; // Not a registered user
+
+      const createdAt = new Date(user.createdAt);
+      const now = new Date();
+      const daysSinceCreation = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSinceCreation > 30) return { discount: 0, type: null }; // Account too old
+    }
+
+    // Check expiry
+    if (coupon.expiryDaysAfterCreation) {
+      const users = JSON.parse(localStorage.getItem('smartwash-users') || '[]');
+      const user = users.find((u: any) => u.email === formData.email);
+      if (user) {
+        const createdAt = new Date(user.createdAt);
+        const now = new Date();
+        const daysSinceCreation = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSinceCreation > coupon.expiryDaysAfterCreation) return { discount: 0, type: null };
+      }
+    }
+
+    // Check usage limit
+    if (coupon.usageLimitPerCustomer) {
+      const usageKey = `smartwash-coupon-usage-${coupon.id}`;
+      const usage = JSON.parse(localStorage.getItem(usageKey) || '{}');
+      const userUsage = usage[formData.email] || 0;
+      if (userUsage >= coupon.usageLimitPerCustomer) return { discount: 0, type: null };
+    }
+
+    // Check minimum order
+    const subtotal = (() => {
+      let total = 0;
+      const selectedService = services.find(s => s.id === formData.service);
+      if (selectedService) total += selectedService.price;
+      const soapPricesCalc = soapPrices;
+      total += soapPricesCalc[formData.soapChoice as keyof typeof soapPricesCalc] || 0;
+      const promoDiscount = getPromotionalDiscount();
+      if (promoDiscount > 0) total = total * (1 - promoDiscount / 100);
+      return total;
+    })();
+
+    if (coupon.minimumOrder && subtotal < coupon.minimumOrder) return { discount: 0, type: null };
+
+    if (coupon.type === 'free_shipping') {
+      return { discount: formData.deliveryFee, type: 'free_shipping' };
+    }
+
+    return { discount: 0, type: null };
+  };
+
   const calculateDeliveryFee = (distanceKm: number): number => {
-    if (distanceKm <= 0) return 0;
-    if (distanceKm <= 3) return 100 + (distanceKm / 3) * 100;
-    const excess50mUnits = Math.ceil(((distanceKm - 3) * 1000) / 50);
-    return 200 + (excess50mUnits * 8);
+    if (!distanceKm || distanceKm <= 0) return 0;
+
+    if (distanceKm <= 3) {
+      // Within 3km: simple tiered pricing between ₱100 - ₱200
+      if (distanceKm <= 1) return 100;
+      if (distanceKm <= 2) return 150;
+      return 200;
+    }
+
+    // Beyond 3km: ₱200 base + ₱8 per 50 meters
+    const extraMeters = (distanceKm - 3) * 1000;
+    const increments = Math.ceil(extraMeters / 50);
+    return 200 + increments * 8;
+  };
+
+  const handleTimeChange = (time: string) => {
+    if (!isValidTime(time)) {
+      alert('Please select a time between 8:00 and 5:59 PM.');
+      return;
+    }
+    setFormData(prev => ({ ...prev, time }));
   };
 
   useEffect(() => {
     let total = 0;
-    const servicePrices = { 'wash-dry-fold': 200, 'wash-dry': 170, 'express': 250 };
-    const soapPrices = { 'soap': 18, 'pabcon': 15, 'both': 30 };
-    total += servicePrices[formData.service as keyof typeof servicePrices] || 0;
-    total += soapPrices[formData.soapChoice as keyof typeof soapPrices] || 0;
-    const deliveryFee = formData.deliveryOption && formData.deliveryDistance ? calculateDeliveryFee(parseFloat(formData.deliveryDistance)) : 0;
-    setFormData(prev => ({ ...prev, deliveryFee, totalAmount: total + deliveryFee }));
-  }, [formData.service, formData.soapChoice, formData.deliveryOption, formData.deliveryDistance]);
+    const selectedService = services.find(s => s.id === formData.service);
+    if (selectedService) {
+      total += selectedService.price;
+    }
+    const soapPricesCalc = soapPrices;
+    total += soapPricesCalc[formData.soapChoice as keyof typeof soapPricesCalc] || 0;
+    
+    // Apply promotional discount
+    const promoDiscount = getPromotionalDiscount();
+    if (promoDiscount > 0) {
+      total = total * (1 - promoDiscount / 100);
+    }
+    
+    let deliveryFee = formData.deliveryOption && formData.deliveryDistance
+      ? calculateDeliveryFee(parseFloat(formData.deliveryDistance))
+      : 0;
+
+    // Apply new user free deliveries, if any
+    const newUserFreeDeliveries = getNewUserFreeDeliveries();
+    if (newUserFreeDeliveries > 0 && formData.deliveryOption) {
+      deliveryFee = 0;
+    }
+    
+    // Apply coupon discount
+    const couponDiscount = getCouponDiscount();
+    let finalDeliveryFee = deliveryFee;
+    if (couponDiscount.type === 'free_shipping') {
+      finalDeliveryFee = Math.max(0, deliveryFee - couponDiscount.discount);
+    }
+    
+    setFormData(prev => ({ ...prev, deliveryFee: finalDeliveryFee, totalAmount: total + finalDeliveryFee }));
+  }, [formData.service, formData.soapChoice, formData.deliveryOption, formData.deliveryDistance, formData.couponCode, formData.email, services, discounts, soapPrices]);
 
   const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); setShowConfirmation(true); };
-  const handleFinalSubmit = () => { onSubmit(formData); onClose(); };
+  const handleFinalSubmit = () => {
+    // Track coupon usage
+    if (formData.couponCode) {
+      const coupon = discounts.find(d => d.code === formData.couponCode && d.active);
+      if (coupon && getCouponDiscount().discount > 0) {
+        const usageKey = `smartwash-coupon-usage-${coupon.id}`;
+        const usage = JSON.parse(localStorage.getItem(usageKey) || '{}');
+        usage[formData.email] = (usage[formData.email] || 0) + 1;
+        localStorage.setItem(usageKey, JSON.stringify(usage));
+      }
+    }
+    onSubmit(formData);
+    onClose();
+  };
   const handleBackToForm = () => setShowConfirmation(false);
   const handleInputChange = (field: string, value: string | boolean) => setFormData(prev => ({ ...prev, [field]: value }));
-  const getServiceLabel = (service: string) => service === 'wash-dry-fold' ? 'Wash, Dry, Fold (₱200 per machine)' : service === 'wash-dry' ? 'Wash, Dry (₱170 per machine)' : service === 'express' ? 'Express (₱250 per machine)' : 'Not selected';
-  const getSoapLabel = (soap: string) => soap === 'bring-own' ? 'Bring my own' : soap === 'soap' ? 'Soap (₱18)' : soap === 'pabcon' ? 'Pabcon (₱15)' : 'Soap & Pabcon (₱30)';
+  const getServiceLabel = (serviceId: string) => {
+    const service = services.find(s => s.id === serviceId);
+    if (service) {
+      let label = `${service.title} (₱${service.price}${service.priceUnit})`;
+      const promoDiscount = getPromotionalDiscount();
+      if (promoDiscount > 0) {
+        const discountedPrice = service.price * (1 - promoDiscount / 100);
+        label += ` - ${promoDiscount}% OFF = ₱${discountedPrice.toFixed(2)}${service.priceUnit}`;
+      }
+      return label;
+    }
+    return 'Not selected';
+  };
+  const getSoapLabel = (soap: string) => {
+    if (soap === 'bring-own') return 'Bring my own';
+    if (soap === 'soap') return `Soap (₱${soapPrices.soap})`;
+    if (soap === 'pabcon') return `Pabcon (₱${soapPrices.pabcon})`;
+    if (soap === 'both') return `Soap & Pabcon (₱${soapPrices.both})`;
+    return '';
+  };
   const getPaymentLabel = (method: string) => method === 'cash' ? 'Cash' : method === 'g-cash' ? 'G-Cash' : 'Maya';
 
   const handlePrintReceipt = () => {
@@ -230,9 +405,12 @@ export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onS
               required
             >
               <option value="">Select a service</option>
-              <option value="wash-dry-fold">Wash, Dry, Fold (₱200 per machine)</option>
-              <option value="wash-dry">Wash, Dry (₱170 per machine)</option>
-              <option value="express">Express (₱250 per machine)</option>
+              {services.filter(service => service.status === 'active').map((service) => (
+                <option key={service.id} value={service.id}>
+                  {service.title} (₱{service.price}{service.priceUnit})
+                  {getPromotionalDiscount() > 0 && ` - ${getPromotionalDiscount()}% OFF`}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -327,9 +505,9 @@ export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onS
             >
               <option value="">Select soap choice</option>
               <option value="bring-own">Bring my own soap/pabcon</option>
-              <option value="soap">Soap (₱18)</option>
-              <option value="pabcon">Pabcon (₱15)</option>
-              <option value="both">Soap & Pabcon (₱30)</option>
+              <option value="soap">Soap (₱{soapPrices.soap})</option>
+              <option value="pabcon">Pabcon (₱{soapPrices.pabcon})</option>
+              <option value="both">Soap & Pabcon (₱{soapPrices.both})</option>
             </select>
           </div>
 
@@ -394,12 +572,26 @@ export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onS
             )}
           </div>
 
+          <div className="mt-4">
+            <label className="block text-sm font-medium mb-1">Coupon Code (Optional)</label>
+            <input
+              type="text"
+              className="w-full p-2 border border-gray-300 rounded"
+              value={formData.couponCode}
+              onChange={(e) => handleInputChange('couponCode', e.target.value.toUpperCase())}
+              placeholder="Enter coupon code"
+            />
+          </div>
+
           <div className="mt-6 p-4 bg-gray-50 rounded-lg">
             <h3 className="text-lg font-semibold mb-2">Payment Summary</h3>
             <div className="space-y-1">
               <p className="text-sm">Service: {getServiceLabel(formData.service)}</p>
               <p className="text-sm">Soap Choice: {formData.soapChoice ? getSoapLabel(formData.soapChoice) : 'Not selected'}</p>
               {formData.deliveryOption && <p className="text-sm">Delivery Fee: ₱{formData.deliveryFee.toFixed(2)}</p>}
+              {formData.couponCode && getCouponDiscount().discount > 0 && (
+                <p className="text-sm text-green-600">Coupon ({formData.couponCode}): -₱{getCouponDiscount().discount.toFixed(2)}</p>
+              )}
               <p className="text-sm">Payment Method: {formData.paymentMethod ? getPaymentLabel(formData.paymentMethod) : 'Not selected'}</p>
               <p className="text-lg font-bold">Total: ₱{(formData.totalAmount || 0).toFixed(2)}</p>
             </div>
@@ -450,6 +642,9 @@ export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onS
                   <p>Service: {getServiceLabel(formData.service)}</p>
                   <p>Soap Choice: {getSoapLabel(formData.soapChoice)}</p>
                   {formData.deliveryOption && <p>Delivery Fee: ₱{formData.deliveryFee?.toFixed(2)}</p>}
+                  {formData.couponCode && getCouponDiscount().discount > 0 && (
+                    <p className="text-green-600">Coupon ({formData.couponCode}): -₱{getCouponDiscount().discount.toFixed(2)}</p>
+                  )}
                   <p>Payment Method: {getPaymentLabel(formData.paymentMethod)}</p>
                   <p className="text-lg font-bold">Total: ₱{formData.totalAmount.toFixed(2)}</p>
                 </div>
