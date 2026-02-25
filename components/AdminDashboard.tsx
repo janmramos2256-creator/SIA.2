@@ -93,6 +93,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onLogout
 }) => {
   const [filter, setFilter] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState<string>('');
   const [discountsState, setDiscountsState] = useState<Discount[]>(discounts);
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [soapPricesInput, setSoapPricesInput] = useState<SoapPrices>(soapPrices);
@@ -131,9 +132,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .reduce((total, b) => total + (b.totalAmount || 0), 0);
   };
 
-  const filteredBookings = filter === 'all'
-    ? bookings
-    : bookings.filter(booking => booking.status === filter);
+  const filteredBookings = bookings
+    .filter((booking) => (filter === 'all' ? true : booking.status === filter))
+    .filter((booking) => {
+      if (!searchTerm.trim()) return true;
+      const term = searchTerm.toLowerCase();
+      const fullName = `${booking.firstName} ${booking.lastName}`.toLowerCase();
+      const address = `${booking.street} ${booking.city} ${booking.state} ${booking.zip}`.toLowerCase();
+      return (
+        fullName.includes(term) ||
+        booking.email.toLowerCase().includes(term) ||
+        booking.phone.toLowerCase().includes(term) ||
+        address.includes(term) ||
+        booking.service.toLowerCase().includes(term)
+      );
+    });
 
   const getStatusColor = (status: Booking['status']) => {
     const colors: Record<Booking['status'], string> = {
@@ -492,23 +505,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             <div className="border border-gray-200">
               <div className="p-6 border-b border-gray-200">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-normal text-black">Bookings</h2>
-                  <Select value={filter} onValueChange={setFilter}>
-                    <SelectTrigger className="w-48 !bg-white !border !border-gray-300">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="!bg-white">
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="confirmed">Confirmed</SelectItem>
-                      <SelectItem value="in-progress">In Progress</SelectItem>
-                      <SelectItem value="in-transit">In Transit</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                      <SelectItem value="cancelled">Cancelled</SelectItem>
-                      <SelectItem value="received">Received</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h2 className="text-xl font-normal text-black">Bookings</h2>
+                    <p className="text-sm text-gray-500">
+                      Customer, service, pickup date &amp; time, address, status and actions.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+                    <Input
+                      placeholder="Search by name, email, phone, service or address..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full md:w-72"
+                    />
+                    <Select value={filter} onValueChange={setFilter}>
+                      <SelectTrigger className="w-full md:w-48 !bg-white !border !border-gray-300">
+                        <SelectValue placeholder="Filter by status" />
+                      </SelectTrigger>
+                      <SelectContent className="!bg-white">
+                        <SelectItem value="all">All Status</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="confirmed">Confirmed</SelectItem>
+                        <SelectItem value="in-progress">In Progress</SelectItem>
+                        <SelectItem value="in-transit">In Transit</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                        <SelectItem value="received">Received</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
               <div className="p-6">
@@ -517,7 +543,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <TableRow>
                       <TableHead>Customer</TableHead>
                       <TableHead>Service</TableHead>
-                      <TableHead>Date/Time</TableHead>
+                      <TableHead>Pickup Date &amp; Time</TableHead>
+                      <TableHead>Address</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Amount</TableHead>
                       <TableHead>Actions</TableHead>
@@ -536,6 +563,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <TableCell>
                           <div>{booking.date}</div>
                           <div className="text-sm text-gray-500">{booking.time}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="max-w-xs text-sm text-gray-700">
+                            <div>{booking.street}</div>
+                            <div className="text-gray-500">
+                              {booking.city}, {booking.state} {booking.zip}
+                            </div>
+                          </div>
                         </TableCell>
                         <TableCell>
                           <Badge className={getStatusColor(booking.status)}>
