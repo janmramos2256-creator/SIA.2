@@ -132,6 +132,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .reduce((total, b) => total + (b.totalAmount || 0), 0);
   };
 
+  const getServiceTitle = (serviceId: string) => {
+    const service = services.find((s) => s.id === serviceId);
+    return service ? service.title : serviceId;
+  };
+
+  const getSoapLabel = (soapChoice: string) => {
+    if (soapChoice === 'bring-own') return 'Bring own soap/pabcon';
+    if (soapChoice === 'soap') return 'Soap';
+    if (soapChoice === 'pabcon') return 'Pabcon';
+    if (soapChoice === 'both') return 'Soap & Pabcon';
+    return 'Not specified';
+  };
+
+  const getPaymentLabel = (method: string) => {
+    switch (method) {
+      case 'cash':
+        return 'Cash';
+      case 'g-cash':
+      case 'gcash':
+        return 'G-Cash';
+      case 'maya':
+        return 'Maya';
+      case 'credit-card':
+      case 'card':
+        return 'Credit Card';
+      default:
+        return method || 'Not specified';
+    }
+  };
+
   const filteredBookings = bookings
     .filter((booking) => (filter === 'all' ? true : booking.status === filter))
     .filter((booking) => {
@@ -514,7 +544,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
                     <Input
-                      placeholder="Search by name, email, phone, service or address..."
+                      placeholder="Search by name, email, or phone..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="w-full md:w-72"
@@ -554,12 +584,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {filteredBookings.map((booking) => (
                       <TableRow key={booking.id}>
                         <TableCell>
-                          <div>
-                            <div className="font-medium">{booking.firstName} {booking.lastName}</div>
-                            <div className="text-sm text-gray-500">{booking.email}</div>
+                          <div className="space-y-1">
+                            <div className="font-medium text-gray-900">
+                              {booking.firstName} {booking.lastName}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {booking.email}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {booking.phone}
+                            </div>
                           </div>
                         </TableCell>
-                        <TableCell>{booking.service}</TableCell>
+                        <TableCell>
+                          <div className="space-y-1 text-sm">
+                            <div className="font-medium text-gray-900">
+                              {getServiceTitle(booking.service)}
+                            </div>
+                            <div className="text-gray-600">
+                              <span className="font-semibold">Soap:</span>{' '}
+                              {getSoapLabel(booking.soapChoice)}
+                            </div>
+                            <div className="text-gray-600">
+                              <span className="font-semibold">Payment:</span>{' '}
+                              {getPaymentLabel(booking.paymentMethod)}
+                            </div>
+                            <div className="text-gray-700">
+                              <span className="font-semibold text-emerald-600">
+                                Total:
+                              </span>{' '}
+                              ₱{(booking.totalAmount || 0).toFixed(2)}
+                            </div>
+                            {booking.notes && (
+                              <div className="text-gray-500 line-clamp-2">
+                                <span className="font-semibold">Note:</span>{' '}
+                                {booking.notes}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <div>{booking.date}</div>
                           <div className="text-sm text-gray-500">{booking.time}</div>
@@ -577,7 +640,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             {booking.status}
                           </Badge>
                         </TableCell>
-                        <TableCell>₱{(booking.totalAmount || 0).toFixed(2)}</TableCell>
                         <TableCell>
                           <div className="flex space-x-2">
                             <Select
@@ -597,13 +659,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 <SelectItem value="received">Received</SelectItem>
                               </SelectContent>
                             </Select>
-                            <Button
-                              variant="destructive"
-                              size="sm"
+                            <button
+                              type="button"
                               onClick={() => onDeleteBooking(booking.id)}
+                              className="text-sm font-medium text-red-500 hover:text-red-600"
                             >
                               Delete
-                            </Button>
+                            </button>
                           </div>
                         </TableCell>
                       </TableRow>
