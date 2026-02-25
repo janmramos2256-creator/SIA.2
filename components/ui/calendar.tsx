@@ -59,14 +59,23 @@ function Calendar({
         day_hidden: "invisible",
         ...classNames,
       }}
-      components={{
-        IconLeft: ({ className, ...props }) => (
-          <ChevronLeft className={cn("size-4", className)} {...props} />
-        ),
-        IconRight: ({ className, ...props }) => (
-          <ChevronRight className={cn("size-4", className)} {...props} />
-        ),
-      }}
+      // Cast to any to align with react-day-picker's CustomComponents typing
+      components={
+        {
+          IconLeft: ({
+            className,
+            ...iconProps
+          }: React.SVGProps<SVGSVGElement>) => (
+            <ChevronLeft className={cn("size-4", className)} {...iconProps} />
+          ),
+          IconRight: ({
+            className,
+            ...iconProps
+          }: React.SVGProps<SVGSVGElement>) => (
+            <ChevronRight className={cn("size-4", className)} {...iconProps} />
+          ),
+        } as any
+      }
       {...props}
     />
   );
