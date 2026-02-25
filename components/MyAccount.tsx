@@ -62,6 +62,15 @@ export const MyAccount: React.FC<MyAccountProps> = ({
         </div>
 
         <div className="space-y-6">
+          {/* Promotional Section */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+            <h3 className="text-lg font-normal text-black mb-2">Welcome Offer</h3>
+            <p className="text-sm text-gray-700">
+              As a new customer, you get <span className="font-semibold text-blue-600">2 free delivery services</span> on your first two bookings! 
+              Simply select delivery when booking your laundry service.
+            </p>
+          </div>
+
           <div>
             <h3 className="text-lg font-normal text-black mb-4">My Bookings</h3>
             {userBookings.length === 0 ? (

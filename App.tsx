@@ -9,6 +9,37 @@ import { CustomerLogin } from './components/CustomerLogin';
 import { MyAccount } from './components/MyAccount';
 import { useState, useEffect } from 'react';
 
+export interface Service {
+  id: string;
+  title: string;
+  price: number;
+  priceUnit: string;
+  description: string;
+  features: string[];
+  status: 'active' | 'inactive';
+}
+
+export interface SoapPrices {
+  soap: number;
+  pabcon: number;
+  both: number;
+}
+
+export interface Discount {
+  id: string;
+  name: string;
+  description: string;
+  active: boolean;
+  value?: number; // For percentage discounts
+  type: 'percentage' | 'free_deliveries' | 'fixed_amount' | 'free_shipping';
+  freeDeliveries?: number; // For free deliveries discount
+  code?: string; // Coupon code
+  usageLimitPerCustomer?: number;
+  eligibility?: 'new_accounts' | 'all';
+  expiryDaysAfterCreation?: number;
+  minimumOrder?: number;
+}
+
 export interface Booking {
   id: string;
   firstName: string;
@@ -47,6 +78,42 @@ export default function App() {
   const [isMyAccountOpen, setIsMyAccountOpen] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [services, setServices] = useState<Service[]>([]);
+  const [discounts, setDiscounts] = useState<Discount[]>([
+    {
+      id: '1',
+      name: 'Welcome Discount',
+      description: '10% off for new customers',
+      active: true,
+      value: 10,
+      type: 'percentage',
+      code: 'WELCOME10',
+      usageLimitPerCustomer: 1,
+      eligibility: 'new_accounts',
+      expiryDaysAfterCreation: 30,
+      minimumOrder: 100
+    },
+    {
+      id: '2',
+      name: 'Free Delivery',
+      description: 'Free delivery on orders over ₱500',
+      active: true,
+      type: 'free_shipping',
+      eligibility: 'all',
+      minimumOrder: 500
+    },
+    {
+      id: '3',
+      name: 'Bulk Order Discount',
+      description: '₱50 off on orders over ₱1000',
+      active: false,
+      value: 50,
+      type: 'fixed_amount',
+      eligibility: 'all',
+      minimumOrder: 1000
+    }
+  ]);
+  const [soapPrices, setSoapPrices] = useState<SoapPrices>({ soap: 18, pabcon: 15, both: 30 });
 
   const scrollToSection = (sectionId: string) => {
     const element = document.getElementById(sectionId);
@@ -74,6 +141,91 @@ export default function App() {
 
   useEffect(() => {
     const savedBookings = localStorage.getItem('smartwash-bookings');
+    const savedServices = localStorage.getItem('smartwash-services');
+    const savedDiscounts = localStorage.getItem('smartwash-discounts');
+    const savedSoapPrices = localStorage.getItem('smartwash-soap-prices');
+
+    if (savedServices) {
+      setServices(JSON.parse(savedServices));
+    } else {
+      const defaultServices: Service[] = [
+        {
+          id: 'wash-dry-fold',
+          title: 'Wash, Dry & Fold',
+          price: 150,
+          priceUnit: '/kg',
+          description: 'Complete laundry service with folding',
+          features: ['Washing', 'Drying', 'Folding', 'Basic stain treatment'],
+          status: 'active'
+        },
+        {
+          id: 'dry-cleaning',
+          title: 'Dry Cleaning',
+          price: 200,
+          priceUnit: '/piece',
+          description: 'Professional dry cleaning for delicate fabrics',
+          features: ['Solvent cleaning', 'Pressing', 'Specialized care', 'Protective wrapping'],
+          status: 'active'
+        },
+        {
+          id: 'express',
+          title: 'Express Service',
+          price: 200,
+          priceUnit: '/kg',
+          description: 'Same-day service for urgent needs',
+          features: ['Priority processing', 'Same-day delivery', 'Quality guaranteed', 'Rush fee included'],
+          status: 'active'
+        }
+      ];
+      setServices(defaultServices);
+      localStorage.setItem('smartwash-services', JSON.stringify(defaultServices));
+    }
+
+    if (savedDiscounts) {
+      setDiscounts(JSON.parse(savedDiscounts));
+    } else {
+      const defaultDiscounts: Discount[] = [
+        {
+          id: 'promotional',
+          name: 'Promotional Discount',
+          description: 'General promotional discount applied to all services',
+          active: false,
+          value: 0,
+          type: 'percentage'
+        },
+        {
+          id: 'new-user-free-deliveries',
+          name: 'New User Free Deliveries',
+          description: 'Free deliveries for new customers',
+          active: true,
+          type: 'free_deliveries',
+          freeDeliveries: 2
+        },
+        {
+          id: 'welcome2ship',
+          name: 'Welcome Free Shipping',
+          description: 'Free shipping for new customers with code WELCOME2SHIP',
+          active: true,
+          type: 'free_shipping',
+          code: 'WELCOME2SHIP',
+          usageLimitPerCustomer: 2,
+          eligibility: 'new_accounts',
+          expiryDaysAfterCreation: 75, // Average of 60-90
+          minimumOrder: 150
+        }
+      ];
+      setDiscounts(defaultDiscounts);
+      localStorage.setItem('smartwash-discounts', JSON.stringify(defaultDiscounts));
+    }
+
+    if (savedSoapPrices) {
+      setSoapPrices(JSON.parse(savedSoapPrices));
+    } else {
+      const defaultSoapPrices: SoapPrices = { soap: 18, pabcon: 15, both: 30 };
+      setSoapPrices(defaultSoapPrices);
+      localStorage.setItem('smartwash-soap-prices', JSON.stringify(defaultSoapPrices));
+    }
+
     if (savedBookings) {
       setBookings(JSON.parse(savedBookings));
     } else {
@@ -151,6 +303,23 @@ export default function App() {
     }
   }, [bookings]);
 
+  // Save services to localStorage whenever they change
+  useEffect(() => {
+    if (services.length > 0) {
+      localStorage.setItem('smartwash-services', JSON.stringify(services));
+    }
+  }, [services]);
+
+  // Save discount to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('smartwash-discounts', JSON.stringify(discounts));
+  }, [discounts]);
+
+  // Save soap prices to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('smartwash-soap-prices', JSON.stringify(soapPrices));
+  }, [soapPrices]);
+
   const addBooking = (booking: Omit<Booking, 'id' | 'status' | 'createdAt'>) => {
     const timestamp = new Date().toISOString();
     const newBooking: Booking = {
@@ -195,6 +364,18 @@ export default function App() {
     setBookings(bookings.filter(booking => booking.id !== id));
   };
 
+  const updateServices = (newServices: Service[]) => {
+    setServices(newServices);
+  };
+
+  const updateDiscounts = (newDiscounts: Discount[]) => {
+    setDiscounts(newDiscounts);
+  };
+
+  const updateSoapPrices = (prices: SoapPrices) => {
+    setSoapPrices(prices);
+  };
+
   const handleLogin = (username: string, password: string) => {
     if (username === 'admin' && password === 'adminpass') {
       sessionStorage.setItem('smartwash-admin-auth', 'authenticated');
@@ -236,8 +417,14 @@ export default function App() {
     return (
       <AdminDashboard
         bookings={bookings}
+        services={services}
+        discounts={discounts}
+        soapPrices={soapPrices}
         onUpdateStatus={updateBookingStatus}
         onDeleteBooking={deleteBooking}
+        onUpdateServices={updateServices}
+        onUpdateDiscounts={updateDiscounts}
+        onUpdateSoapPrices={updateSoapPrices}
         onLogout={handleLogout}
       />
     );
@@ -273,13 +460,16 @@ export default function App() {
         <AboutUs />
       </div>
       <div id="services">
-        <Services />
+        <Services services={services} />
       </div>
       <BookingModal
         isOpen={isBookingOpen}
         onClose={() => setIsBookingOpen(false)}
         onSubmit={addBooking}
         currentUser={currentUser}
+        services={services}
+        discounts={discounts}
+        soapPrices={soapPrices}
       />
       <MyAccount
         isOpen={isMyAccountOpen}

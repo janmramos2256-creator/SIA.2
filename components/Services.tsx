@@ -1,26 +1,20 @@
 import React from 'react';
 
-export const Services: React.FC = () => {
-  const services = [
-    {
-      title: 'Wash, Dry & Fold',
-      price: '₱150/kg',
-      description: 'Complete laundry service with folding',
-      features: ['Washing', 'Drying', 'Folding', 'Basic stain treatment']
-    },
-    {
-      title: 'Dry Cleaning',
-      price: '₱200/piece',
-      description: 'Professional dry cleaning for delicate fabrics',
-      features: ['Solvent cleaning', 'Pressing', 'Specialized care', 'Protective wrapping']
-    },
-    {
-      title: 'Express Service',
-      price: '₱200/kg',
-      description: 'Same-day service for urgent needs',
-      features: ['Priority processing', 'Same-day delivery', 'Quality guaranteed', 'Rush fee included']
-    }
-  ];
+interface Service {
+  id: string;
+  title: string;
+  price: number;
+  priceUnit: string;
+  description: string;
+  features: string[];
+  status: 'active' | 'inactive';
+}
+
+interface ServicesProps {
+  services: Service[];
+}
+
+export const Services: React.FC<ServicesProps> = ({ services }) => {
 
   return (
     <section className="py-20 bg-white">
@@ -32,11 +26,11 @@ export const Services: React.FC = () => {
           </p>
         </div>
         <div className="grid md:grid-cols-3 gap-12">
-          {services.map((service, index) => (
-            <div key={index} className="border border-gray-200 p-8">
+          {services.filter(service => service.status === 'active').map((service) => (
+            <div key={service.id} className="border border-gray-200 p-8">
               <div className="text-center mb-6">
                 <h3 className="text-xl font-normal text-black mb-2">{service.title}</h3>
-                <div className="text-2xl font-normal text-black">{service.price}</div>
+                <div className="text-2xl font-normal text-black">₱{service.price}{service.priceUnit}</div>
               </div>
               <p className="text-gray-600 mb-6 text-center">{service.description}</p>
               <ul className="space-y-3">
