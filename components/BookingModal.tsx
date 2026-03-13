@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { loadGoogleMapsScript, getGoogleMapsApiKey, getBusinessOrigin } from './lib/googleMaps';
 
 interface Service {
   id: string;
@@ -42,12 +43,22 @@ interface BookingModalProps {
 }
 
 export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onSubmit, currentUser, services, discounts, soapPrices }) => {
+  const mapsApiKey = getGoogleMapsApiKey();
+  const businessOrigin = getBusinessOrigin();
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<{ map: any; marker?: any } | null>(null);
+
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [deliveryDistanceLoading, setDeliveryDistanceLoading] = useState(false);
+  const [deliveryDistanceError, setDeliveryDistanceError] = useState('');
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', email: '', phone: '', service: '', date: '', time: '',
     street: '', city: '', state: '', zip: '', notes: '', paymentMethod: '', soapChoice: '',
     deliveryOption: false, deliveryDistance: '', deliveryFee: 0, totalAmount: 0, couponCode: ''
   });
+
+  // Initialize map when delivery is checked and Maps API loads (shows Manila by default)
+  const MANILA_CENTER = { lat: 14.5995, lng: 120.9842 };
 
   useEffect(() => {
     if (isOpen) {
@@ -158,6 +169,172 @@ export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onS
     return 200 + increments * 8;
   };
 
+  const updateAddressFromLatLng = useCallback((latLng: any) => {
+    if (!latLng || typeof window === 'undefined') return;
+    const g = (window as any).google;
+    if (!g?.maps) return;
+    const geocoder = new g.maps.Geocoder();
+    geocoder.geocode({ location: latLng }, (results: any, status: string) => {
+      if (status !== 'OK' || !results?.[0]) return;
+      const components = results[0].address_components || [];
+      const getComponent = (types: string[]) =>
+        components.find((c: any) => types.every((t) => c.types.includes(t))) || null;
+
+      const streetNumber = getComponent(['street_number'])?.long_name || '';
+      const route = getComponent(['route'])?.long_name || '';
+      const locality =
+        getComponent(['locality'])?.long_name ||
+        getComponent(['sublocality'])?.long_name ||
+        '';
+      const adminArea = getComponent(['administrative_area_level_1'])?.long_name || '';
+      const postalCode = getComponent(['postal_code'])?.long_name || '';
+
+      const street =
+        [streetNumber, route].filter(Boolean).join(' ') || results[0].formatted_address;
+
+      setFormData((prev) => ({
+        ...prev,
+        street,
+        city: locality || prev.city,
+        state: adminArea || prev.state,
+        zip: postalCode || prev.zip,
+      }));
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!formData.deliveryOption) {
+      mapInstanceRef.current = null;
+      return;
+    }
+    if (!isOpen || !mapsApiKey) return;
+    const tid = setTimeout(() => {
+      const container = mapContainerRef.current;
+      if (!container) return;
+      loadGoogleMapsScript(mapsApiKey)
+        .then(() => {
+          if (!mapContainerRef.current) return;
+          const g = (window as any).google;
+          if (!g?.maps) return;
+          const map = new g.maps.Map(mapContainerRef.current, {
+            center: MANILA_CENTER,
+            zoom: 12,
+            mapTypeControl: true,
+            streetViewControl: false,
+          });
+          mapInstanceRef.current = { map, marker: null };
+          map.addListener('click', (event: any) => {
+            const loc = event?.latLng;
+            if (!loc) return;
+            const mapState = mapInstanceRef.current;
+            if (!mapState) return;
+            if (mapState.marker) {
+              mapState.marker.setPosition(loc);
+            } else {
+              mapState.marker = new g.maps.Marker({
+                map: mapState.map,
+                position: loc,
+                title: 'Delivery address',
+              });
+            }
+            updateAddressFromLatLng(loc);
+          });
+          const resize = () => {
+            try {
+              g.event?.trigger?.(map, 'resize');
+              map.setCenter(MANILA_CENTER);
+            } catch {}
+          };
+          setTimeout(resize, 150);
+          setTimeout(resize, 500);
+        })
+        .catch(() => {});
+    }, 150);
+    return () => clearTimeout(tid);
+  }, [isOpen, formData.deliveryOption, mapsApiKey, updateAddressFromLatLng]);
+
+  const buildDestinationAddress = useCallback(() => {
+    const { street, city, state, zip } = formData;
+    if (!street || !city) return '';
+    return [street, city, state, zip].filter(Boolean).join(', ');
+  }, [formData.street, formData.city, formData.state, formData.zip]);
+
+  const initMapAtAddress = useCallback((address: string) => {
+    if (!mapsApiKey || !mapContainerRef.current || typeof window === 'undefined') return;
+    const g = (window as any).google;
+    if (!g?.maps) return;
+    const geocoder = new g.maps.Geocoder();
+    geocoder.geocode({ address }, (results: any, status: string) => {
+      if (status !== 'OK' || !results?.[0]?.geometry?.location || !mapContainerRef.current) return;
+      const loc = results[0].geometry.location;
+      const mapState = mapInstanceRef.current;
+      if (!mapState) return;
+      mapState.map.setCenter(loc);
+      mapState.map.setZoom(14);
+      if (mapState.marker) {
+        mapState.marker.setPosition(loc);
+      } else {
+        mapState.marker = new g.maps.Marker({ map: mapState.map, position: loc, title: 'Delivery address' });
+      }
+      g.event?.trigger?.(mapState.map, 'resize');
+    });
+  }, [mapsApiKey]);
+
+  const calculateDeliveryDistanceFromMaps = useCallback(async () => {
+    const destination = buildDestinationAddress();
+    if (!destination) {
+      setDeliveryDistanceError('Fill in street and city first.');
+      return;
+    }
+    if (!mapsApiKey) {
+      setDeliveryDistanceError('Add VITE_GOOGLE_MAPS_API_KEY to .env');
+      return;
+    }
+    setDeliveryDistanceLoading(true);
+    setDeliveryDistanceError('');
+    try {
+      await loadGoogleMapsScript(mapsApiKey);
+      const g = (window as unknown as { google?: { maps: any } }).google;
+      if (!g?.maps) throw new Error('Google Maps failed to load');
+
+      await new Promise<void>((resolve, reject) => {
+        const service = new g.maps.DistanceMatrixService();
+        service.getDistanceMatrix(
+          {
+            origins: [businessOrigin],
+            destinations: [destination],
+            travelMode: g.maps.TravelMode.DRIVING,
+            unitSystem: g.maps.UnitSystem.METRIC,
+          },
+          (response: any, status: string) => {
+            if (status !== 'OK') {
+              reject(new Error(`Distance Matrix: ${status}`));
+              return;
+            }
+            const element = response?.rows?.[0]?.elements?.[0];
+            if (!element || element.status !== 'OK') {
+              reject(new Error('Could not calculate route to this address. Check the address.'));
+              return;
+            }
+            const meters = element.distance.value;
+            const km = meters / 1000;
+            setFormData((prev) => ({
+              ...prev,
+              deliveryDistance: km.toFixed(2),
+            }));
+            initMapAtAddress(destination);
+            resolve();
+          }
+        );
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Distance calculation failed';
+      setDeliveryDistanceError(msg);
+    } finally {
+      setDeliveryDistanceLoading(false);
+    }
+  }, [mapsApiKey, businessOrigin, buildDestinationAddress, initMapAtAddress]);
+
   const handleTimeChange = (time: string) => {
     if (!isValidTime(time)) {
       alert('Please select a time between 8:00 and 5:59 PM.');
@@ -181,9 +358,12 @@ export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onS
       total = total * (1 - promoDiscount / 100);
     }
     
-    let deliveryFee = formData.deliveryOption && formData.deliveryDistance
-      ? calculateDeliveryFee(parseFloat(formData.deliveryDistance))
-      : 0;
+    const distanceKm =
+      formData.deliveryOption && formData.deliveryDistance
+        ? parseFloat(formData.deliveryDistance)
+        : 0;
+    let deliveryFee =
+      formData.deliveryOption && distanceKm > 0 ? calculateDeliveryFee(distanceKm) : 0;
 
     // Apply new user free deliveries, if any
     const newUserFreeDeliveries = getNewUserFreeDeliveries();
@@ -201,7 +381,18 @@ export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onS
     setFormData(prev => ({ ...prev, deliveryFee: finalDeliveryFee, totalAmount: total + finalDeliveryFee }));
   }, [formData.service, formData.soapChoice, formData.deliveryOption, formData.deliveryDistance, formData.couponCode, formData.email, services, discounts, soapPrices]);
 
-  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); setShowConfirmation(true); };
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (formData.deliveryOption && mapsApiKey && !formData.deliveryDistance) {
+      setDeliveryDistanceError('Calculate delivery distance first.');
+      return;
+    }
+    if (formData.deliveryOption && !mapsApiKey && !formData.deliveryDistance) {
+      setDeliveryDistanceError('Enter delivery distance in km.');
+      return;
+    }
+    setShowConfirmation(true);
+  };
   const handleFinalSubmit = () => {
     // Track coupon usage
     if (formData.couponCode) {
@@ -542,19 +733,68 @@ export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onS
 
             {formData.deliveryOption && (
               <div className="space-y-4 ml-6">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Distance from our location (km)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="1"
-                    className="w-full p-2 border border-gray-300 rounded"
-                    value={formData.deliveryDistance}
-                    onChange={(e) => handleInputChange('deliveryDistance', e.target.value)}
-                    placeholder="Enter distance in kilometers"
-                    required={formData.deliveryOption}
-                  />
-                </div>
+                {mapsApiKey ? (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Delivery distance (from Google Maps)
+                      </label>
+                      <p className="text-xs text-gray-500 mb-2">
+                        We use driving distance from <strong>{businessOrigin}</strong> to your address above.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={deliveryDistanceLoading}
+                        onClick={() => void calculateDeliveryDistanceFromMaps()}
+                        className="w-full px-4 py-2 rounded border border-teal-600 bg-teal-50 text-teal-800 font-medium hover:bg-teal-100 disabled:opacity-50"
+                      >
+                        {deliveryDistanceLoading
+                          ? 'Calculating…'
+                          : formData.deliveryDistance
+                            ? 'Recalculate distance'
+                            : 'Calculate delivery distance'}
+                      </button>
+                      {deliveryDistanceError && (
+                        <p className="mt-2 text-sm text-red-600">{deliveryDistanceError}</p>
+                      )}
+                      {formData.deliveryDistance && !deliveryDistanceError && (
+                        <p className="mt-2 text-sm font-medium text-teal-700">
+                          Driving distance: {formData.deliveryDistance} km → Fee: ₱
+                          {formData.deliveryFee.toFixed(2)}
+                        </p>
+                      )}
+                    </div>
+                    <div
+                      ref={mapContainerRef}
+                      className="rounded border border-gray-200 overflow-hidden"
+                      style={{ width: '100%', height: 220 }}
+                      aria-label="Delivery address map"
+                    />
+                    {!formData.deliveryDistance && (
+                      <p className="text-xs text-amber-700">
+                        Click <strong>Calculate delivery distance</strong> before confirming (required for delivery).
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Distance from our location (km)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      className="w-full p-2 border border-gray-300 rounded"
+                      value={formData.deliveryDistance}
+                      onChange={(e) => handleInputChange('deliveryDistance', e.target.value)}
+                      placeholder="Enter km manually (add VITE_GOOGLE_MAPS_API_KEY for auto)"
+                      required={formData.deliveryOption}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Set <code className="bg-gray-200 px-1 rounded">VITE_GOOGLE_MAPS_API_KEY</code> in{' '}
+                      <code className="bg-gray-200 px-1 rounded">.env</code> to use Google Maps instead.
+                    </p>
+                  </div>
+                )}
 
                 <div className="text-sm text-gray-600 bg-white p-3 rounded border">
                   <h4 className="font-medium mb-2">Delivery Fee Breakdown:</h4>
@@ -562,7 +802,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onS
                     <li>• Within 3km: ₱100 - ₱200</li>
                     <li>• Beyond 3km: ₱200 + ₱8 per 50 meters</li>
                   </ul>
-                  {formData.deliveryDistance && (
+                  {formData.deliveryDistance && parseFloat(formData.deliveryDistance) > 0 && (
                     <p className="mt-2 font-medium text-teal-600">
                       Your delivery fee: ₱{formData.deliveryFee.toFixed(2)}
                     </p>

@@ -36,14 +36,18 @@ interface Booking {
   }>;
 }
 
-interface Service {
+interface User {
   id: string;
-  title: string;
-  price: number;
-  priceUnit: string;
-  description: string;
-  features: string[];
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  role: 'customer' | 'admin' | 'staff';
   status: 'active' | 'inactive';
+  createdAt: string;
+  lastLogin?: string;
+  totalBookings: number;
+  totalSpent: number;
 }
 
 interface SoapPrices {
@@ -72,11 +76,16 @@ interface AdminDashboardProps {
   services: Service[];
   discounts: Discount[];
   soapPrices: SoapPrices;
+  users: User[];
   onUpdateStatus: (id: string, status: Booking['status']) => void;
   onDeleteBooking: (id: string) => void;
   onUpdateServices: (services: Service[]) => void;
   onUpdateDiscounts: (discounts: Discount[]) => void;
   onUpdateSoapPrices: (prices: SoapPrices) => void;
+  onUpdateUsers: (users: User[]) => void;
+  onDeleteUser: (id: string) => void;
+  onUpdateUserRole: (id: string, role: User['role']) => void;
+  onToggleUserStatus: (id: string) => void;
   onLogout: () => void;
 }
 
@@ -85,15 +94,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   services,
   discounts,
   soapPrices,
+  users,
   onUpdateStatus,
   onDeleteBooking,
   onUpdateServices,
   onUpdateDiscounts,
   onUpdateSoapPrices,
+  onUpdateUsers,
+  onDeleteUser,
+  onUpdateUserRole,
+  onToggleUserStatus,
   onLogout
 }) => {
   const [filter, setFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [userSearchTerm, setUserSearchTerm] = useState<string>('');
+  const [userFilter, setUserFilter] = useState<string>('all');
   const [discountsState, setDiscountsState] = useState<Discount[]>(discounts);
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [soapPricesInput, setSoapPricesInput] = useState<SoapPrices>(soapPrices);
@@ -178,6 +194,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       );
     });
 
+  const filteredUsers = users
+    .filter((user) => (userFilter === 'all' ? true : user.role === userFilter || user.status === userFilter))
+    .filter((user) => {
+      if (!userSearchTerm.trim()) return true;
+      const term = userSearchTerm.toLowerCase();
+      const fullName = `${user.firstName} ${user.lastName}`.toLowerCase();
+      return (
+        fullName.includes(term) ||
+        user.email.toLowerCase().includes(term) ||
+        user.phone.toLowerCase().includes(term)
+      );
+    });
+
   const getStatusColor = (status: Booking['status']) => {
     const colors: Record<Booking['status'], string> = {
       'pending': 'bg-yellow-100 text-yellow-800',
@@ -196,6 +225,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     pending: bookings.filter(b => b.status === 'pending').length,
     inProgress: bookings.filter(b => b.status === 'in-progress').length,
     completed: bookings.filter(b => b.status === 'completed').length,
+  };
+
+  const userStats = {
+    total: users.length,
+    active: users.filter(u => u.status === 'active').length,
+    inactive: users.filter(u => u.status === 'inactive').length,
+    admins: users.filter(u => u.role === 'admin').length,
+    customers: users.filter(u => u.role === 'customer').length,
+  };
+
+  const getUserRoleColor = (role: User['role']) => {
+    const colors: Record<User['role'], string> = {
+      'admin': 'bg-red-100 text-red-800',
+      'staff': 'bg-blue-100 text-blue-800',
+      'customer': 'bg-green-100 text-green-800'
+    };
+    return colors[role];
+  };
+
+  const getUserStatusColor = (status: User['status']) => {
+    return status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800';
   };
 
   const handleSaveDiscounts = () => {
@@ -306,6 +356,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               }`}
             >
               Discount
+            </button>
+            <button
+              onClick={() => setActiveTab('users')}
+              className={`py-2 px-4 border-b-2 font-medium text-sm ${
+                activeTab === 'users'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Users
             </button>
           </nav>
         </div>
@@ -1060,6 +1120,149 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </CardContent>
               </Card>
             )}
+          </div>
+        )}
+
+        {activeTab === 'users' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+              <div className="border border-gray-200 p-6">
+                <div className="text-sm text-gray-600 mb-2">Total Users</div>
+                <div className="text-2xl font-normal text-black">{userStats.total}</div>
+              </div>
+              <div className="border border-gray-200 p-6">
+                <div className="text-sm text-gray-600 mb-2">Active Users</div>
+                <div className="text-2xl font-normal text-green-600">{userStats.active}</div>
+              </div>
+              <div className="border border-gray-200 p-6">
+                <div className="text-sm text-gray-600 mb-2">Inactive Users</div>
+                <div className="text-2xl font-normal text-gray-600">{userStats.inactive}</div>
+              </div>
+              <div className="border border-gray-200 p-6">
+                <div className="text-sm text-gray-600 mb-2">Admins</div>
+                <div className="text-2xl font-normal text-red-600">{userStats.admins}</div>
+              </div>
+              <div className="border border-gray-200 p-6">
+                <div className="text-sm text-gray-600 mb-2">Customers</div>
+                <div className="text-2xl font-normal text-blue-600">{userStats.customers}</div>
+              </div>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>User Management</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                  <div className="flex-1">
+                    <Input
+                      placeholder="Search users by name, email, or phone..."
+                      value={userSearchTerm}
+                      onChange={(e) => setUserSearchTerm(e.target.value)}
+                      className="w-full"
+                    />
+                  </div>
+                  <Select value={userFilter} onValueChange={setUserFilter}>
+                    <SelectTrigger className="w-full sm:w-48">
+                      <SelectValue placeholder="Filter by..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Users</SelectItem>
+                      <SelectItem value="active">Active Only</SelectItem>
+                      <SelectItem value="inactive">Inactive Only</SelectItem>
+                      <SelectItem value="admin">Admins Only</SelectItem>
+                      <SelectItem value="customer">Customers Only</SelectItem>
+                      <SelectItem value="staff">Staff Only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Phone</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Bookings</TableHead>
+                        <TableHead>Total Spent</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredUsers.map((user) => (
+                        <TableRow key={user.id}>
+                          <TableCell className="font-medium">
+                            {user.firstName} {user.lastName}
+                          </TableCell>
+                          <TableCell>{user.email}</TableCell>
+                          <TableCell>{user.phone}</TableCell>
+                          <TableCell>
+                            <Badge className={getUserRoleColor(user.role)}>
+                              {user.role}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={getUserStatusColor(user.status)}>
+                              {user.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{user.totalBookings}</TableCell>
+                          <TableCell>₱{user.totalSpent.toFixed(2)}</TableCell>
+                          <TableCell>
+                            {new Date(user.createdAt).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex space-x-2">
+                              <Select
+                                value={user.role}
+                                onValueChange={(value: User['role']) => onUpdateUserRole(user.id, value)}
+                              >
+                                <SelectTrigger className="w-24">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="customer">Customer</SelectItem>
+                                  <SelectItem value="staff">Staff</SelectItem>
+                                  <SelectItem value="admin">Admin</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                size="sm"
+                                variant={user.status === 'active' ? 'destructive' : 'default'}
+                                onClick={() => onToggleUserStatus(user.id)}
+                              >
+                                {user.status === 'active' ? 'Deactivate' : 'Activate'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  if (window.confirm(`Are you sure you want to delete ${user.firstName} ${user.lastName}? This action cannot be undone.`)) {
+                                    onDeleteUser(user.id);
+                                  }
+                                }}
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {filteredUsers.length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    No users found matching your criteria.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         )}
       </main>

@@ -4,12 +4,23 @@ interface HeaderProps {
   onBookingClick: () => void;
   onMyAccountClick: () => void;
   onLogout?: () => void;
+  onAdminDashboardClick?: () => void;
+  showAdminDashboard?: boolean;
   onHomeClick?: () => void;
   onAboutClick?: () => void;
   onServicesClick?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onBookingClick, onMyAccountClick, onLogout, onHomeClick, onAboutClick, onServicesClick }) => {
+export const Header: React.FC<HeaderProps> = ({
+  onBookingClick,
+  onMyAccountClick,
+  onLogout,
+  onAdminDashboardClick,
+  showAdminDashboard,
+  onHomeClick,
+  onAboutClick,
+  onServicesClick,
+}) => {
   return (
     <header className="bg-white border-b border-gray-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -46,6 +57,14 @@ export const Header: React.FC<HeaderProps> = ({ onBookingClick, onMyAccountClick
             <button onClick={onMyAccountClick} className="styled-button bg-teal-500 text-white hover:bg-teal-600 transition-colors px-6 py-3 rounded-lg font-normal shadow-md inline-flex items-center justify-center">
               My Account
             </button>
+            {showAdminDashboard && onAdminDashboardClick && (
+              <button
+                onClick={onAdminDashboardClick}
+                className="styled-button bg-gray-900 text-white hover:bg-gray-800 transition-colors px-6 py-3 rounded-lg font-normal shadow-md inline-flex items-center justify-center"
+              >
+                Admin Dashboard
+              </button>
+            )}
             {onLogout && (
               <button onClick={onLogout} className="styled-button bg-red-500 text-white hover:bg-red-600 transition-colors px-6 py-3 rounded-lg font-normal shadow-md inline-flex items-center justify-center">
                 Logout

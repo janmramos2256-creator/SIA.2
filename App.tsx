@@ -4,8 +4,7 @@ import { AboutUs } from './components/AboutUs';
 import { Services } from './components/Services';
 import { BookingModal } from './components/BookingModal';
 import { AdminDashboard } from './components/AdminDashboard';
-import { AdminLogin } from './components/AdminLogin';
-import { CustomerLogin } from './components/CustomerLogin';
+import { FirebaseAuth } from './components/FirebaseAuth';
 import { MyAccount } from './components/MyAccount';
 import { useState, useEffect } from 'react';
 
@@ -40,6 +39,20 @@ export interface Discount {
   minimumOrder?: number;
 }
 
+export interface User {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  role: 'customer' | 'admin' | 'staff';
+  status: 'active' | 'inactive';
+  createdAt: string;
+  lastLogin?: string;
+  totalBookings: number;
+  totalSpent: number;
+}
+
 export interface Booking {
   id: string;
   firstName: string;
@@ -71,9 +84,8 @@ export interface Booking {
 
 export default function App() {
   const [isBookingOpen, setIsBookingOpen] = useState(false);
-  const [showAdminLogin, setShowAdminLogin] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isCustomerLoggedIn, setIsCustomerLoggedIn] = useState(false);
+  const [firebaseUser, setFirebaseUser] = useState<{ email?: string | null } | null>(null);
+  const [isAdminView, setIsAdminView] = useState(false);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [isMyAccountOpen, setIsMyAccountOpen] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState('');
@@ -113,6 +125,7 @@ export default function App() {
       minimumOrder: 1000
     }
   ]);
+  const [users, setUsers] = useState<User[]>([]);
   const [soapPrices, setSoapPrices] = useState<SoapPrices>({ soap: 18, pabcon: 15, both: 30 });
 
   const scrollToSection = (sectionId: string) => {
@@ -123,20 +136,32 @@ export default function App() {
   };
 
   useEffect(() => {
-    const currentUser = localStorage.getItem('smartwash-current-user');
-    if (currentUser) {
-      setIsCustomerLoggedIn(true);
-      const user = JSON.parse(currentUser);
-      setCurrentUserEmail(user.email || '');
+    const saved = localStorage.getItem('smartwash-current-user');
+    if (saved) {
+      const user = JSON.parse(saved);
       setCurrentUser(user);
+      if (user?.email) setCurrentUserEmail(user.email);
     }
   }, []);
 
   useEffect(() => {
-    const authToken = sessionStorage.getItem('smartwash-admin-auth');
-    if (authToken === 'authenticated') {
-      setIsAuthenticated(true);
-    }
+    if (!window.firebaseAuth) return;
+    return window.firebaseAuth.onAuthStateChanged((user) => {
+      setFirebaseUser(user);
+      if (!user) {
+        setIsAdminView(false);
+      } else if (user?.email) {
+        // Sync current user from Firebase so My Account shows correct bookings
+        setCurrentUserEmail(user.email);
+        const saved = localStorage.getItem('smartwash-current-user');
+        const parsed = saved ? JSON.parse(saved) : {};
+        if (parsed.email !== user.email) {
+          const merged = { ...parsed, email: user.email, displayName: (user as any).displayName };
+          setCurrentUser(merged);
+          localStorage.setItem('smartwash-current-user', JSON.stringify(merged));
+        }
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -294,6 +319,63 @@ export default function App() {
       setBookings(mockBookings);
       localStorage.setItem('smartwash-bookings', JSON.stringify(mockBookings));
     }
+
+    // Initialize users from Firestore (with localStorage fallback)
+    const initializeUsers = async () => {
+      try {
+        if (window.firebaseDB?.getAllUsers) {
+          const firestoreUsers = await window.firebaseDB.getAllUsers();
+          if (firestoreUsers.length > 0) {
+            setUsers(firestoreUsers);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('Error loading users from Firestore:', error);
+      }
+
+      // Fallback to localStorage
+      const savedUsers = localStorage.getItem('smartwash-registered-users');
+      if (savedUsers) {
+        setUsers(JSON.parse(savedUsers));
+        return;
+      }
+
+      // Final fallback: mock admin accounts
+      const mockAdmins: User[] = [
+        {
+          id: 'admin-1',
+          firstName: 'Admin',
+          lastName: 'User',
+          email: 'admin@smartwash.com',
+          phone: '09191111111',
+          role: 'admin',
+          status: 'active',
+          createdAt: '2026-01-01T00:00:00',
+          lastLogin: '2026-01-25T12:00:00',
+          totalBookings: 0,
+          totalSpent: 0
+        },
+        {
+          id: 'admin-2',
+          firstName: 'Jane',
+          lastName: 'Staff',
+          email: 'staff@smartwash.com',
+          phone: '09192222222',
+          role: 'staff',
+          status: 'active',
+          createdAt: '2026-01-05T09:00:00',
+          lastLogin: '2026-01-25T08:30:00',
+          totalBookings: 0,
+          totalSpent: 0
+        }
+      ];
+
+      setUsers(mockAdmins);
+      localStorage.setItem('smartwash-registered-users', JSON.stringify(mockAdmins));
+    };
+
+    initializeUsers();
   }, []);
 
   // Save bookings to localStorage whenever they change
@@ -302,6 +384,13 @@ export default function App() {
       localStorage.setItem('smartwash-bookings', JSON.stringify(bookings));
     }
   }, [bookings]);
+
+  // Save users to localStorage whenever they change
+  useEffect(() => {
+    if (users.length > 0) {
+      localStorage.setItem('smartwash-registered-users', JSON.stringify(users));
+    }
+  }, [users]);
 
   // Save services to localStorage whenever they change
   useEffect(() => {
@@ -334,6 +423,19 @@ export default function App() {
       }]
     };
     setBookings([...bookings, newBooking]);
+    
+    // Update user's booking statistics
+    setUsers(users.map(user => {
+      if (user.email === booking.email) {
+        return {
+          ...user,
+          totalBookings: user.totalBookings + 1,
+          totalSpent: user.totalSpent + (booking.totalAmount || 0)
+        };
+      }
+      return user;
+    }));
+    
     setIsBookingOpen(false); // Close the booking modal
   };
 
@@ -376,71 +478,142 @@ export default function App() {
     setSoapPrices(prices);
   };
 
-  const handleLogin = (username: string, password: string) => {
-    if (username === 'admin' && password === 'adminpass') {
-      sessionStorage.setItem('smartwash-admin-auth', 'authenticated');
-      setIsAuthenticated(true);
-      setShowAdminLogin(false);
-      if (window.location.hash) {
-        window.location.hash = '';
+  const updateUsers = async (newUsers: User[]) => {
+    setUsers(newUsers);
+    // Note: In a real implementation, you'd want to sync all users back to Firestore
+    // For now, we'll just update local state
+  };
+
+  const deleteUser = (id: string) => {
+    setUsers(users.filter(user => user.id !== id));
+  };
+
+  const updateUserRole = async (id: string, role: User['role']) => {
+    try {
+      if (window.firebaseDB?.updateUser) {
+        await window.firebaseDB.updateUser(id, { role });
       }
-      return true;
+      setUsers(users.map(user =>
+        user.id === id ? { ...user, role } : user
+      ));
+    } catch (error) {
+      console.error('Error updating user role:', error);
+      // Fallback to local state only
+      setUsers(users.map(user =>
+        user.id === id ? { ...user, role } : user
+      ));
     }
-    return false;
   };
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('smartwash-admin-auth');
-    setIsAuthenticated(false);
+  const toggleUserStatus = async (id: string) => {
+    const newStatus = users.find(user => user.id === id)?.status === 'active' ? 'inactive' : 'active';
+    try {
+      if (window.firebaseDB?.updateUser) {
+        await window.firebaseDB.updateUser(id, { status: newStatus });
+      }
+      setUsers(users.map(user =>
+        user.id === id
+          ? { ...user, status: newStatus }
+          : user
+      ));
+    } catch (error) {
+      console.error('Error toggling user status:', error);
+      // Fallback to local state only
+      setUsers(users.map(user =>
+        user.id === id
+          ? { ...user, status: newStatus }
+          : user
+      ));
+    }
   };
 
-  const handleCustomerLogin = () => {
-    setIsCustomerLoggedIn(true);
+  const reloadUsers = async () => {
+    try {
+      if (window.firebaseDB?.getAllUsers) {
+        const firestoreUsers = await window.firebaseDB.getAllUsers();
+        setUsers(firestoreUsers);
+      } else {
+        // Fallback to localStorage
+        const savedUsers = localStorage.getItem('smartwash-registered-users');
+        if (savedUsers) {
+          const registeredUsers = JSON.parse(savedUsers);
+          setUsers(registeredUsers);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading users:', error);
+      // Fallback to localStorage
+      const savedUsers = localStorage.getItem('smartwash-registered-users');
+      if (savedUsers) {
+        const registeredUsers = JSON.parse(savedUsers);
+        setUsers(registeredUsers);
+      }
+    }
   };
 
-  const handleAdminAccessFromLogin = () => {
-    setShowAdminLogin(true);
+  const adminEmails = (import.meta as any).env?.VITE_ADMIN_EMAILS
+    ? String((import.meta as any).env.VITE_ADMIN_EMAILS)
+        .split(',')
+        .map((s: string) => s.trim().toLowerCase())
+        .filter(Boolean)
+    : ['admin@smartwash.com'];
+
+  // Check if user is admin either by email or by role
+  const isAdmin = !!firebaseUser?.email && (
+    adminEmails.includes(String(firebaseUser.email).toLowerCase()) ||
+    users.find(user => user.email === firebaseUser.email && user.role === 'admin') !== undefined
+  );
+
+  const handleLogout = async () => {
+    try {
+      await window.firebaseAuth?.signOut();
+    } finally {
+      localStorage.removeItem('smartwash-current-user');
+      setCurrentUserEmail('');
+      setCurrentUser(null);
+    }
   };
 
   const handleMarkAsReceived = (id: string) => {
     updateBookingStatus(id, 'received', 'customer');
   };
 
-  const handleCustomerLogout = () => {
-    localStorage.removeItem('smartwash-current-user');
-    setIsCustomerLoggedIn(false);
-    setCurrentUserEmail('');
-    setCurrentUser(null);
-  };
-
-  if (isAuthenticated) {
-    return (
-      <AdminDashboard
-        bookings={bookings}
-        services={services}
-        discounts={discounts}
-        soapPrices={soapPrices}
-        onUpdateStatus={updateBookingStatus}
-        onDeleteBooking={deleteBooking}
-        onUpdateServices={updateServices}
-        onUpdateDiscounts={updateDiscounts}
-        onUpdateSoapPrices={updateSoapPrices}
-        onLogout={handleLogout}
-      />
-    );
+  if (isAdminView) {
+    if (!isAdmin) {
+      setIsAdminView(false);
+    } else {
+      return (
+        <AdminDashboard
+          bookings={bookings}
+          services={services}
+          discounts={discounts}
+          soapPrices={soapPrices}
+          users={users}
+          onUpdateStatus={updateBookingStatus}
+          onDeleteBooking={deleteBooking}
+          onUpdateServices={updateServices}
+          onUpdateDiscounts={updateDiscounts}
+          onUpdateSoapPrices={updateSoapPrices}
+          onUpdateUsers={updateUsers}
+          onDeleteUser={deleteUser}
+          onUpdateUserRole={updateUserRole}
+          onToggleUserStatus={toggleUserStatus}
+          onLogout={() => void handleLogout()}
+        />
+      );
+    }
   }
 
-  if (showAdminLogin) {
+  if (!firebaseUser) {
     return (
-      <AdminLogin
-        onLogin={handleLogin}
-        onClose={() => setShowAdminLogin(false)}
+      <FirebaseAuth
+        onAdminAccess={() => {
+          // Optional shortcut (Ctrl+Alt+P) to jump into admin view after login
+          setIsAdminView(true);
+        }}
+        onUserRegistered={reloadUsers}
       />
     );
-  }
-
-  if (!isCustomerLoggedIn) {
-    return <CustomerLogin onLogin={handleCustomerLogin} onAdminAccess={handleAdminAccessFromLogin} />;
   }
 
   return (
@@ -448,7 +621,9 @@ export default function App() {
       <Header
         onBookingClick={() => setIsBookingOpen(true)}
         onMyAccountClick={() => setIsMyAccountOpen(true)}
-        onLogout={handleCustomerLogout}
+        onLogout={() => void handleLogout()}
+        showAdminDashboard={isAdmin}
+        onAdminDashboardClick={() => setIsAdminView(true)}
         onHomeClick={() => scrollToSection('home')}
         onAboutClick={() => scrollToSection('about')}
         onServicesClick={() => scrollToSection('services')}
@@ -475,7 +650,8 @@ export default function App() {
         isOpen={isMyAccountOpen}
         onClose={() => setIsMyAccountOpen(false)}
         bookings={bookings}
-        currentUserEmail={currentUserEmail}
+        services={services}
+        currentUserEmail={currentUserEmail || firebaseUser?.email || ''}
         onMarkAsReceived={handleMarkAsReceived}
       />
     </div>

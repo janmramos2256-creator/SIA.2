@@ -5,6 +5,7 @@
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
     "pmneo.tsimporter",
-    "christian-kohler.path-intellisense"
+    "christian-kohler.path-intellisense",
+    "firebase.firebase-vscode"
   ]
 }
